@@ -1,429 +1,435 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import math
-import re
-from word2number import w2n
 
-# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="AI Smart Calculator", page_icon="🧮", layout="centered")
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
-html, body, [class*="css"] { font-family: 'Space Grotesk', sans-serif; background-color: #0d0d14; color: #e8e4f0; }
-#MainMenu, footer, header { visibility: hidden; }
-.block-container { padding: 2.5rem 1.5rem 4rem; max-width: 680px; }
-.hero-title { font-size: 2.8rem; font-weight: 700; letter-spacing: -0.04em; line-height: 1.1;
-    background: linear-gradient(135deg, #c084fc 0%, #818cf8 60%, #38bdf8 100%);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 0.2rem; }
-.hero-sub { font-size: 0.95rem; color: #6b7280; font-weight: 400; margin-bottom: 2rem; }
-.stTextInput > div > div > input { background: #15151f !important; border: 1.5px solid #2a2a3d !important;
-    border-radius: 12px !important; color: #e8e4f0 !important; font-family: 'Space Grotesk', sans-serif !important;
-    font-size: 1.05rem !important; padding: 0.85rem 1.1rem !important; }
-.stTextInput > div > div > input:focus { border-color: #818cf8 !important; box-shadow: 0 0 0 3px rgba(129,140,248,0.15) !important; }
-.stTextInput > div > div > input::placeholder { color: #3d3d55 !important; }
-.stButton > button { background: linear-gradient(135deg, #7c3aed, #4f46e5) !important; color: #fff !important;
-    border: none !important; border-radius: 10px !important; font-family: 'Space Grotesk', sans-serif !important;
-    font-weight: 600 !important; font-size: 0.95rem !important; padding: 0.7rem 2rem !important; }
-.stButton > button:hover { opacity: 0.88 !important; transform: translateY(-1px) !important; }
-.result-card { background: #15151f; border: 1.5px solid #2a2a3d; border-radius: 14px; padding: 1.4rem 1.6rem; margin-top: 1.4rem; }
-.result-label { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #4f46e5; margin-bottom: 0.4rem; }
-.result-value { font-family: 'JetBrains Mono', monospace; font-size: 2.4rem; font-weight: 600; color: #c084fc; line-height: 1.2; }
-.result-expr { font-size: 0.85rem; color: #4b5563; margin-top: 0.35rem; font-family: 'JetBrains Mono', monospace; }
-.error-card { background: #1a0f1f; border: 1.5px solid #5b1f3c; border-radius: 14px; padding: 1.1rem 1.4rem;
-    margin-top: 1.4rem; color: #f87171; font-size: 0.9rem; }
-.history-title { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
-    color: #374151; margin: 2rem 0 0.8rem; }
-.history-item { display: flex; justify-content: space-between; align-items: baseline;
-    padding: 0.6rem 0; border-bottom: 1px solid #1c1c2a; gap: 1rem; }
-.history-q { color: #6b7280; font-size: 0.88rem; flex: 1; }
-.history-a { font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; font-weight: 600; color: #818cf8; white-space: nowrap; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+html,body,[class*="css"]{font-family:'Inter',sans-serif;}
+body,.stApp{
+  background-color:#f0f2f8;
+  background-image:linear-gradient(rgba(99,102,241,0.07) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(99,102,241,0.07) 1px,transparent 1px);
+  background-size:32px 32px;
+}
+#MainMenu,footer,header{visibility:hidden;}
+.block-container{padding:2rem 1.5rem 4rem;max-width:640px;}
+.hero-wrap{text-align:center;margin-bottom:1.8rem;}
+.hero-title{font-size:2.4rem;font-weight:700;letter-spacing:-0.04em;color:#1a1a2e;line-height:1.1;margin-bottom:0.3rem;}
+.hero-title span{color:#6366f1;}
+.hero-sub{font-size:0.9rem;color:#6b7280;}
 </style>
 """, unsafe_allow_html=True)
 
-# ── Session state ─────────────────────────────────────────────────────────────
-if "history" not in st.session_state:
-    st.session_state.history = []
-if "voice_text" not in st.session_state:
-    st.session_state.voice_text = ""
+st.markdown("""
+<div class="hero-wrap">
+  <div class="hero-title">AI Smart <span>Calculator</span></div>
+  <div class="hero-sub">Type or speak — works instantly, no API needed.</div>
+</div>
+""", unsafe_allow_html=True)
 
-# ── NLP Math Engine ───────────────────────────────────────────────────────────
-def extract_numbers(text: str) -> list:
-    """Extract all numbers from text, converting words to numbers."""
-    text = text.lower().strip()
+# ── Single self-contained component: all math + voice in JS, no Streamlit round-trip ──
+CALCULATOR_HTML = """
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:transparent;color:#1a1a2e;padding:0 2px 16px;}
 
-    # Replace word numbers with digits
-    word_num_pattern = r'\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|point|and)+(\s+(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|point|and))*\b'
+.result-card{background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:14px;
+  padding:1.4rem 1.6rem;margin-bottom:1.2rem;box-shadow:0 6px 24px rgba(99,102,241,0.3);
+  animation:popIn .3s cubic-bezier(.34,1.56,.64,1) both;}
+.result-label{font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:rgba(255,255,255,.7);margin-bottom:.3rem;}
+.result-value{font-family:'JetBrains Mono',monospace;font-size:2.4rem;font-weight:700;color:#fff;line-height:1.1;}
+.result-expr{font-size:.8rem;color:rgba(255,255,255,.65);margin-top:.4rem;font-family:'JetBrains Mono',monospace;}
+.error-card{background:#fff5f5;border:1px solid #fecaca;border-radius:12px;
+  padding:.9rem 1.2rem;margin-bottom:1rem;color:#dc2626;font-size:.88rem;}
 
-    def replace_word_num(m):
-        try:
-            return str(w2n.word_to_num(m.group(0)))
-        except:
-            return m.group(0)
+.calc-card{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:1.4rem 1.6rem;
+  box-shadow:0 4px 24px rgba(99,102,241,0.08);}
+.section-label{font-size:.72rem;font-weight:600;color:#9ca3af;text-transform:uppercase;
+  letter-spacing:.08em;margin-bottom:.55rem;}
 
-    text = re.sub(word_num_pattern, replace_word_num, text)
+.voice-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.5rem;}
+.btn-mic{background:#6366f1;color:#fff;border:none;border-radius:9px;padding:.5rem 1.2rem;
+  font-size:.88rem;font-family:'Inter',sans-serif;font-weight:600;cursor:pointer;
+  box-shadow:0 2px 8px rgba(99,102,241,.25);transition:background .15s;}
+.btn-mic:hover{background:#4f46e5;}
+.btn-mic.listening{background:#dc2626;}
+.btn-use{background:#fff;color:#6366f1;border:1.5px solid #6366f1;border-radius:7px;
+  padding:.32rem .85rem;font-size:.82rem;font-family:'Inter',sans-serif;font-weight:600;
+  cursor:pointer;display:none;transition:background .15s;}
+.btn-use:hover{background:#f5f3ff;}
+.status{font-size:.78rem;color:#6b7280;}
+.transcript{display:none;margin-top:.5rem;background:#f5f3ff;border:1.5px solid #c4b5fd;
+  border-radius:9px;padding:.5rem .9rem;font-size:.9rem;color:#4f46e5;
+  font-family:'JetBrains Mono',monospace;word-break:break-word;}
 
-    # Find all numeric values (including decimals and negatives)
-    nums = re.findall(r'-?\d+\.?\d*', text)
-    return [float(n) if '.' in n else int(n) for n in nums]
+.input-row{display:flex;gap:.6rem;margin:1rem 0 .8rem;}
+.main-input{flex:1;background:#f8f9fc;border:1.5px solid #e0e2ef;border-radius:10px;
+  color:#1a1a2e;font-family:'Inter',sans-serif;font-size:1rem;padding:.75rem 1rem;outline:none;
+  transition:border-color .15s,box-shadow .15s;}
+.main-input:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.12);background:#fff;}
+.main-input::placeholder{color:#a0a8c0;}
+.btn-calc{background:#6366f1;color:#fff;border:none;border-radius:9px;
+  font-family:'Inter',sans-serif;font-weight:600;font-size:.9rem;padding:.75rem 1.4rem;
+  cursor:pointer;box-shadow:0 2px 8px rgba(99,102,241,.25);white-space:nowrap;transition:background .15s;}
+.btn-calc:hover{background:#4f46e5;}
 
+.pills{display:flex;flex-wrap:wrap;gap:.4rem;}
+.pill{background:#f5f3ff;color:#6366f1;border:1px solid #e0dbff;border-radius:7px;
+  padding:.28rem .7rem;font-size:.78rem;font-weight:500;cursor:pointer;
+  font-family:'Inter',sans-serif;transition:background .15s;}
+.pill:hover{background:#ede9fe;}
 
-def smart_calculate(text: str) -> dict:
-    """Parse natural language and compute result."""
-    original = text
-    text = text.lower().strip()
-    # remove filler words
-    text = re.sub(r'\b(what is|what\'s|calculate|compute|find|tell me|give me|please|the|value of|result of|equals?|=)\b', '', text)
-    text = text.strip()
+.history-section{margin-top:1.2rem;}
+.history-title{font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:#9ca3af;margin-bottom:.55rem;}
+.history-item{display:flex;justify-content:space-between;align-items:center;
+  padding:.5rem .8rem;border-radius:8px;margin-bottom:.22rem;
+  background:#fff;border:1px solid #f0f0f8;transition:background .15s;}
+.history-item:hover{background:#f5f3ff;}
+.history-q{color:#6b7280;font-size:.85rem;flex:1;margin-right:.5rem;word-break:break-word;}
+.history-a{font-family:'JetBrains Mono',monospace;font-size:.9rem;font-weight:700;color:#6366f1;white-space:nowrap;}
+.btn-clear{margin-top:.8rem;background:#fff;color:#9ca3af;border:1px solid #e5e7eb;
+  border-radius:8px;padding:.35rem .9rem;font-size:.8rem;font-family:'Inter',sans-serif;
+  cursor:pointer;transition:all .15s;}
+.btn-clear:hover{background:#fff5f5;color:#dc2626;border-color:#fecaca;}
 
-    nums = extract_numbers(text)
+@keyframes popIn{from{opacity:0;transform:scale(.93)}to{opacity:1;transform:scale(1)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
 
-    # ── Patterns ──────────────────────────────────────────────────────────────
+<div id="resultArea"></div>
 
-    # Square root
-    if re.search(r'square\s*root|sqrt|√', text):
-        if nums:
-            n = nums[0]
-            if n < 0:
-                return {"expression": f"√{n}", "result": None, "steps": "Cannot take square root of a negative number."}
-            r = math.sqrt(n)
-            return {"expression": f"√{n}", "result": round(r, 6), "steps": f"√{n} = {round(r,6)}"}
+<div class="calc-card">
+  <div class="section-label">🎤 Voice Input <span style="font-weight:400;text-transform:none;letter-spacing:0">(Chrome / Edge only)</span></div>
+  <div class="voice-row">
+    <button class="btn-mic" id="micBtn" onclick="toggleMic()">🎤 Speak</button>
+    <button class="btn-use" id="useBtn" onclick="useTranscript()">✓ Use this</button>
+    <span class="status" id="statusMsg"></span>
+  </div>
+  <div class="transcript" id="transcript"></div>
 
-    # Cube root
-    if re.search(r'cube\s*root|cbrt', text):
-        if nums:
-            n = nums[0]
-            r = round(n ** (1/3), 6)
-            return {"expression": f"∛{n}", "result": r, "steps": f"∛{n} = {r}"}
+  <div class="input-row">
+    <input class="main-input" id="mainInput" type="text" placeholder="e.g. What is 15% of 850?"
+      onkeydown="if(event.key==='Enter')runCalc()">
+    <button class="btn-calc" onclick="runCalc()">Calculate →</button>
+  </div>
 
-    # Factorial
-    if re.search(r'factorial|fact\b|!', text):
-        if nums:
-            n = int(nums[0])
-            if n < 0:
-                return {"expression": f"{n}!", "result": None, "steps": "Factorial not defined for negative numbers."}
-            if n > 20:
-                return {"expression": f"{n}!", "result": None, "steps": "Number too large for factorial (max 20)."}
-            r = math.factorial(n)
-            return {"expression": f"{n}!", "result": r, "steps": f"{n}! = {r}"}
+  <div class="section-label">Try an example</div>
+  <div class="pills" id="pillsRow"></div>
+</div>
 
-    # Power / exponent
-    if re.search(r'power|raised to|exponent|\^|\*\*|to the', text):
-        if len(nums) >= 2:
-            base, exp = nums[0], nums[1]
-            r = base ** exp
-            r = round(r, 6) if isinstance(r, float) else r
-            return {"expression": f"{base}^{exp}", "result": r, "steps": f"{base} raised to power {exp} = {r}"}
+<div class="history-section" id="historySection" style="display:none">
+  <div class="history-title">Recent calculations</div>
+  <div id="historyList"></div>
+  <button class="btn-clear" onclick="clearHistory()">Clear history</button>
+</div>
 
-    # Percentage of
-    if re.search(r'percent\s*of|%\s*of', text):
-        if len(nums) >= 2:
-            pct, total = nums[0], nums[1]
-            r = round((pct / 100) * total, 6)
-            return {"expression": f"{pct}% of {total}", "result": r, "steps": f"{pct}/100 × {total} = {r}"}
+<script>
+// ── Math engine (JS port) ────────────────────────────────────────────────────
+const WORD_NUMS={zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,
+  ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,
+  eighteen:18,nineteen:19,twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,
+  eighty:80,ninety:90,hundred:100,thousand:1000,million:1e6,billion:1e9};
 
-    # Percentage (what percent is X of Y)
-    if re.search(r'what percent|percentage', text):
-        if len(nums) >= 2:
-            part, whole = nums[0], nums[1]
-            if whole == 0:
-                return {"expression": f"{part}/{whole}×100", "result": None, "steps": "Cannot divide by zero."}
-            r = round((part / whole) * 100, 4)
-            return {"expression": f"({part}/{whole})×100", "result": r, "steps": f"{part} is {r}% of {whole}"}
-
-    # Log base 10
-    if re.search(r'\blog\b(?!\s*base|\s*2)', text):
-        if nums:
-            n = nums[0]
-            if n <= 0:
-                return {"expression": f"log({n})", "result": None, "steps": "Log undefined for non-positive numbers."}
-            r = round(math.log10(n), 6)
-            return {"expression": f"log₁₀({n})", "result": r, "steps": f"log₁₀({n}) = {r}"}
-
-    # Log base 2
-    if re.search(r'log\s*2|log\s*base\s*2|log₂', text):
-        if nums:
-            n = nums[0]
-            if n <= 0:
-                return {"expression": f"log₂({n})", "result": None, "steps": "Log undefined for non-positive numbers."}
-            r = round(math.log2(n), 6)
-            return {"expression": f"log₂({n})", "result": r, "steps": f"log₂({n}) = {r}"}
-
-    # Natural log
-    if re.search(r'\bln\b|natural\s*log', text):
-        if nums:
-            n = nums[0]
-            if n <= 0:
-                return {"expression": f"ln({n})", "result": None, "steps": "ln undefined for non-positive numbers."}
-            r = round(math.log(n), 6)
-            return {"expression": f"ln({n})", "result": r, "steps": f"ln({n}) = {r}"}
-
-    # Sine
-    if re.search(r'\bsin\b|sine', text):
-        if nums:
-            n = nums[0]
-            r = round(math.sin(math.radians(n)), 6)
-            return {"expression": f"sin({n}°)", "result": r, "steps": f"sin({n}°) = {r}"}
-
-    # Cosine
-    if re.search(r'\bcos\b|cosine', text):
-        if nums:
-            n = nums[0]
-            r = round(math.cos(math.radians(n)), 6)
-            return {"expression": f"cos({n}°)", "result": r, "steps": f"cos({n}°) = {r}"}
-
-    # Tangent
-    if re.search(r'\btan\b|tangent', text):
-        if nums:
-            n = nums[0]
-            r = round(math.tan(math.radians(n)), 6)
-            return {"expression": f"tan({n}°)", "result": r, "steps": f"tan({n}°) = {r}"}
-
-    # GCD
-    if re.search(r'\bgcd\b|greatest common', text):
-        if len(nums) >= 2:
-            a, b = int(nums[0]), int(nums[1])
-            r = math.gcd(a, b)
-            return {"expression": f"GCD({a},{b})", "result": r, "steps": f"GCD of {a} and {b} = {r}"}
-
-    # LCM
-    if re.search(r'\blcm\b|least common multiple', text):
-        if len(nums) >= 2:
-            a, b = int(nums[0]), int(nums[1])
-            r = (a * b) // math.gcd(a, b)
-            return {"expression": f"LCM({a},{b})", "result": r, "steps": f"LCM of {a} and {b} = {r}"}
-
-    # Modulo / remainder
-    if re.search(r'mod(ulo)?|remainder|%(?!\s*of)', text):
-        if len(nums) >= 2:
-            a, b = nums[0], nums[1]
-            if b == 0:
-                return {"expression": f"{a} mod {b}", "result": None, "steps": "Cannot mod by zero."}
-            r = a % b
-            return {"expression": f"{a} mod {b}", "result": r, "steps": f"{a} mod {b} = {r}"}
-
-    # Average / mean
-    if re.search(r'average|mean|avg', text):
-        if nums:
-            r = round(sum(nums) / len(nums), 6)
-            return {"expression": f"avg({', '.join(str(n) for n in nums)})", "result": r,
-                    "steps": f"Sum {sum(nums)} ÷ {len(nums)} = {r}"}
-
-    # Absolute value
-    if re.search(r'absolute|abs\b|\|', text):
-        if nums:
-            n = nums[0]
-            return {"expression": f"|{n}|", "result": abs(n), "steps": f"|{n}| = {abs(n)}"}
-
-    # Pi
-    if re.search(r'\bpi\b|π', text):
-        r = round(math.pi, 6)
-        return {"expression": "π", "result": r, "steps": f"π ≈ {r}"}
-
-    # Division
-    if re.search(r'divid|÷|over\b|per\b|by\b|/', text):
-        if len(nums) >= 2:
-            a, b = nums[0], nums[1]
-            if b == 0:
-                return {"expression": f"{a} ÷ {b}", "result": None, "steps": "Cannot divide by zero."}
-            r = a / b
-            r = round(r, 6)
-            return {"expression": f"{a} ÷ {b}", "result": r, "steps": f"{a} divided by {b} = {r}"}
-
-    # Multiplication
-    if re.search(r'multi|times|product|\*|×', text):
-        if len(nums) >= 2:
-            r = nums[0]
-            for n in nums[1:]:
-                r *= n
-            r = round(r, 6) if isinstance(r, float) else r
-            return {"expression": " × ".join(str(n) for n in nums), "result": r,
-                    "steps": f"Product of {nums} = {r}"}
-
-    # Subtraction
-    if re.search(r'subtract|minus|deduct|less|difference|take away|−|-', text):
-        if len(nums) >= 2:
-            r = nums[0]
-            for n in nums[1:]:
-                r -= n
-            return {"expression": " − ".join(str(n) for n in nums), "result": r,
-                    "steps": f"{nums[0]} minus {' minus '.join(str(n) for n in nums[1:])} = {r}"}
-
-    # Addition (default if numbers exist)
-    if re.search(r'add|plus|sum|total|\+', text) or len(nums) >= 2:
-        if nums:
-            r = sum(nums)
-            r = round(r, 6) if isinstance(r, float) else r
-            return {"expression": " + ".join(str(n) for n in nums), "result": r,
-                    "steps": f"Sum of {nums} = {r}"}
-
-    # Single number entered
-    if len(nums) == 1:
-        return {"expression": str(nums[0]), "result": nums[0], "steps": "Single value returned."}
-
-    return {"expression": original, "result": None, "steps": "Sorry, I couldn't understand that. Try: 'add 5 and 3', 'sqrt of 16', '20% of 500'."}
-
-
-# ── Voice Component ───────────────────────────────────────────────────────────
-def voice_input_component():
-    voice_html = """
-    <div style="margin-bottom: 1rem;">
-        <button id="micBtn" onclick="toggleMic()" style="
-            background: linear-gradient(135deg, #7c3aed, #4f46e5);
-            color: white; border: none; border-radius: 10px;
-            padding: 0.6rem 1.4rem; font-size: 0.95rem;
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 600; cursor: pointer; display: flex;
-            align-items: center; gap: 0.5rem; transition: opacity 0.2s;">
-            🎤 Speak
-        </button>
-        <div id="statusMsg" style="margin-top: 0.5rem; font-size: 0.82rem; color: #6b7280; min-height: 1.2rem;"></div>
-        <div id="transcript" style="
-            margin-top: 0.5rem; background: #15151f; border: 1.5px solid #2a2a3d;
-            border-radius: 10px; padding: 0.6rem 1rem; font-size: 0.95rem;
-            color: #c084fc; font-family: 'JetBrains Mono', monospace;
-            min-height: 2rem; display: none;"></div>
-        <button id="useBtn" onclick="useTranscript()" style="
-            display: none; margin-top: 0.5rem;
-            background: #1a1a2e; color: #818cf8;
-            border: 1px solid #818cf8; border-radius: 8px;
-            padding: 0.4rem 1rem; font-size: 0.85rem;
-            font-family: 'Space Grotesk', sans-serif; cursor: pointer;">
-            ✓ Use this
-        </button>
-    </div>
-
-    <script>
-    let recognition = null;
-    let listening = false;
-    let lastTranscript = "";
-
-    function toggleMic() {
-        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-            document.getElementById('statusMsg').innerHTML =
-                '⚠️ Speech not supported. Use Chrome or Edge.';
-            return;
-        }
-        if (listening) {
-            recognition.stop();
-            return;
-        }
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        recognition = new SpeechRecognition();
-        recognition.lang = 'en-US';
-        recognition.interimResults = true;
-        recognition.maxAlternatives = 1;
-
-        recognition.onstart = () => {
-            listening = true;
-            document.getElementById('micBtn').innerHTML = '⏹ Stop';
-            document.getElementById('micBtn').style.background = 'linear-gradient(135deg,#dc2626,#b91c1c)';
-            document.getElementById('statusMsg').innerHTML = '🔴 Listening…';
-            document.getElementById('transcript').style.display = 'none';
-            document.getElementById('useBtn').style.display = 'none';
-        };
-
-        recognition.onresult = (e) => {
-            let interim = '';
-            let final = '';
-            for (let i = e.resultIndex; i < e.results.length; i++) {
-                const t = e.results[i][0].transcript;
-                if (e.results[i].isFinal) final += t;
-                else interim += t;
-            }
-            const display = final || interim;
-            lastTranscript = display;
-            document.getElementById('transcript').style.display = 'block';
-            document.getElementById('transcript').innerText = display;
-            if (final) {
-                document.getElementById('useBtn').style.display = 'inline-block';
-            }
-        };
-
-        recognition.onerror = (e) => {
-            document.getElementById('statusMsg').innerHTML = '❌ Error: ' + e.error;
-            resetMic();
-        };
-
-        recognition.onend = () => {
-            if (lastTranscript) {
-                document.getElementById('statusMsg').innerHTML = '✅ Done — click "Use this" to calculate.';
-                document.getElementById('useBtn').style.display = 'inline-block';
-            } else {
-                document.getElementById('statusMsg').innerHTML = 'No speech detected. Try again.';
-            }
-            resetMic();
-        };
-
-        recognition.start();
+function wordsToNum(text){
+  const ws=text.toLowerCase().split(/\\s+/);
+  let result=0,current=0;
+  for(const w of ws){
+    if(w in WORD_NUMS){
+      const n=WORD_NUMS[w];
+      if(n===100) current=(current||1)*100;
+      else if(n>=1000){result=(result+(current||1))*n;current=0;}
+      else current+=n;
     }
+  }
+  return result+current;
+}
 
-    function resetMic() {
-        listening = false;
-        document.getElementById('micBtn').innerHTML = '🎤 Speak';
-        document.getElementById('micBtn').style.background = 'linear-gradient(135deg,#7c3aed,#4f46e5)';
+function extractNumbers(text){
+  text=text.toLowerCase();
+  const wordPat=/\\b(?:(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)(?:\\s+(?:and\\s+)?(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion))*)\\b/g;
+  text=text.replace(wordPat,m=>{try{const v=wordsToNum(m);return String(v);}catch(e){return m;}});
+  const ms=[...text.matchAll(/-?\\d+\\.?\\d*/g)];
+  return ms.map(m=>m[0].includes('.')?parseFloat(m[0]):parseInt(m[0]));
+}
+
+function fmt(r){
+  if(Number.isInteger(r)) return r.toLocaleString();
+  const s=parseFloat(r.toPrecision(10));
+  return s.toLocaleString(undefined,{maximumSignificantDigits:10});
+}
+
+function smartCalc(text){
+  const original=text;
+  let t=text.toLowerCase().trim()
+    .replace(/\\b(what is|what's|calculate|compute|find|tell me|give me|please|the|value of|result of|equals?)\\b/g,'').trim();
+  const nums=extractNumbers(t);
+
+  if(/square\\s*root|sqrt|√/.test(t)){
+    if(!nums.length) return err('No number found.');
+    const n=nums[0];
+    if(n<0) return err('Cannot sqrt a negative number.');
+    const r=Math.sqrt(n);
+    return ok(`√${n}`,r,`√${n} = ${fmt(r)}`);
+  }
+  if(/cube\\s*root|cbrt/.test(t)){
+    if(!nums.length) return err('No number found.');
+    const n=nums[0],r=Math.cbrt(n);
+    return ok(`∛${n}`,r,`∛${n} = ${fmt(r)}`);
+  }
+  if(/factorial|fact\\b/.test(t)){
+    if(!nums.length) return err('No number found.');
+    const n=Math.floor(nums[0]);
+    if(n<0) return err('Factorial undefined for negatives.');
+    if(n>20) return err('Too large (max 20).');
+    let r=1; for(let i=2;i<=n;i++) r*=i;
+    return ok(`${n}!`,r,`${n}! = ${fmt(r)}`);
+  }
+  if(/power|raised to|exponent|\\^|\\*\\*|to the/.test(t)){
+    if(nums.length<2) return err('Need two numbers.');
+    const[b,e]=nums,r=Math.pow(b,e);
+    return ok(`${b}^${e}`,r,`${b}^${e} = ${fmt(r)}`);
+  }
+  if(/percent\\s*of|%\\s*of/.test(t)){
+    if(nums.length<2) return err('Need two numbers.');
+    const[p,total]=nums,r=(p/100)*total;
+    return ok(`${p}% of ${total}`,r,`${p}/100 × ${total} = ${fmt(r)}`);
+  }
+  if(/what percent|percentage/.test(t)){
+    if(nums.length<2) return err('Need two numbers.');
+    const[part,whole]=nums;
+    if(whole===0) return err('Cannot divide by zero.');
+    const r=(part/whole)*100;
+    return ok(`(${part}/${whole})×100`,r,`${part} is ${fmt(r)}% of ${whole}`);
+  }
+  if(/log\\s*base\\s*2|log\\s*2\\b|log₂/.test(t)){
+    if(!nums.length) return err('No number found.');
+    const n=nums[0];
+    if(n<=0) return err('Log undefined for ≤ 0.');
+    return ok(`log₂(${n})`,Math.log2(n),`log₂(${n}) = ${fmt(Math.log2(n))}`);
+  }
+  if(/\\bln\\b|natural\\s*log/.test(t)){
+    if(!nums.length) return err('No number found.');
+    const n=nums[0];
+    if(n<=0) return err('ln undefined for ≤ 0.');
+    return ok(`ln(${n})`,Math.log(n),`ln(${n}) = ${fmt(Math.log(n))}`);
+  }
+  if(/\\blog\\b/.test(t)){
+    if(!nums.length) return err('No number found.');
+    const n=nums[0];
+    if(n<=0) return err('Log undefined for ≤ 0.');
+    return ok(`log₁₀(${n})`,Math.log10(n),`log₁₀(${n}) = ${fmt(Math.log10(n))}`);
+  }
+  if(/\\bsin\\b|sine/.test(t)){
+    if(!nums.length) return err('No number found.');
+    const n=nums[0],r=Math.sin(n*Math.PI/180);
+    return ok(`sin(${n}°)`,r,`sin(${n}°) = ${fmt(r)}`);
+  }
+  if(/\\bcos\\b|cosine/.test(t)){
+    if(!nums.length) return err('No number found.');
+    const n=nums[0],r=Math.cos(n*Math.PI/180);
+    return ok(`cos(${n}°)`,r,`cos(${n}°) = ${fmt(r)}`);
+  }
+  if(/\\btan\\b|tangent/.test(t)){
+    if(!nums.length) return err('No number found.');
+    const n=nums[0],r=Math.tan(n*Math.PI/180);
+    return ok(`tan(${n}°)`,r,`tan(${n}°) = ${fmt(r)}`);
+  }
+  if(/\\bgcd\\b|greatest common/.test(t)){
+    if(nums.length<2) return err('Need two numbers.');
+    const[a,b]=nums.map(Math.floor);
+    const g=(x,y)=>y===0?x:g(y,x%y);
+    const r=g(Math.abs(a),Math.abs(b));
+    return ok(`GCD(${a},${b})`,r,`GCD(${a},${b}) = ${r}`);
+  }
+  if(/\\blcm\\b|least common multiple/.test(t)){
+    if(nums.length<2) return err('Need two numbers.');
+    const[a,b]=nums.map(Math.floor);
+    const g=(x,y)=>y===0?x:g(y,x%y);
+    const r=Math.abs(a*b)/g(Math.abs(a),Math.abs(b));
+    return ok(`LCM(${a},${b})`,r,`LCM(${a},${b}) = ${r}`);
+  }
+  if(/mod(ulo)?|remainder/.test(t)){
+    if(nums.length<2) return err('Need two numbers.');
+    const[a,b]=nums;
+    if(b===0) return err('Cannot mod by zero.');
+    return ok(`${a} mod ${b}`,a%b,`${a} mod ${b} = ${a%b}`);
+  }
+  if(/average|mean|\\bavg\\b/.test(t)){
+    if(!nums.length) return err('No numbers found.');
+    const s=nums.reduce((a,b)=>a+b,0),r=s/nums.length;
+    return ok(`avg(${nums.join(', ')})`,r,`Sum(${s}) ÷ ${nums.length} = ${fmt(r)}`);
+  }
+  if(/absolute|\\babs\\b/.test(t)){
+    if(!nums.length) return err('No number found.');
+    return ok(`|${nums[0]}|`,Math.abs(nums[0]),`|${nums[0]}| = ${Math.abs(nums[0])}`);
+  }
+  if(/\\bpi\\b|π/.test(t)){
+    return ok('π',Math.PI,`π ≈ ${Math.PI.toPrecision(9)}`);
+  }
+  if(/divid|÷|over\\b|\\bper\\b|\\bby\\b/.test(t)){
+    if(nums.length<2) return err('Need two numbers.');
+    const[a,b]=nums;
+    if(b===0) return err('Cannot divide by zero.');
+    return ok(`${a} ÷ ${b}`,a/b,`${a} ÷ ${b} = ${fmt(a/b)}`);
+  }
+  if(/multi|times|product|×/.test(t)){
+    if(nums.length<2) return err('Need two numbers.');
+    const r=nums.reduce((a,b)=>a*b,1);
+    return ok(nums.join(' × '),r,`Product = ${fmt(r)}`);
+  }
+  if(/subtract|minus|deduct|less|difference|take away/.test(t)){
+    if(nums.length<2) return err('Need two numbers.');
+    const r=nums.slice(1).reduce((a,b)=>a-b,nums[0]);
+    return ok(nums.join(' − '),r,`Difference = ${fmt(r)}`);
+  }
+  if(/add|plus|\\bsum\\b|total/.test(t)||nums.length>=2){
+    if(!nums.length) return err('No numbers found.');
+    const r=nums.reduce((a,b)=>a+b,0);
+    return ok(nums.join(' + '),r,`Sum = ${fmt(r)}`);
+  }
+  if(nums.length===1) return ok(String(nums[0]),nums[0],'Single value.');
+  return err("Couldn't parse. Try: 'add 5 and 3', 'sqrt 16', '20% of 500'");
+}
+
+function ok(expr,result,steps){return{ok:true,expression:expr,result,steps};}
+function err(msg){return{ok:false,steps:msg};}
+
+// ── History (localStorage) ───────────────────────────────────────────────────
+let history=[];
+try{ history=JSON.parse(localStorage.getItem('calc_history')||'[]'); }catch(e){}
+
+function saveHistory(){
+  try{localStorage.setItem('calc_history',JSON.stringify(history));}catch(e){}
+  renderHistory();
+}
+
+function renderHistory(){
+  const sec=document.getElementById('historySection');
+  const list=document.getElementById('historyList');
+  if(!history.length){sec.style.display='none';return;}
+  sec.style.display='block';
+  list.innerHTML=history.map(h=>`
+    <div class="history-item">
+      <span class="history-q">${h.q}</span>
+      <span class="history-a">${h.r}</span>
+    </div>`).join('');
+}
+
+function clearHistory(){history=[];saveHistory();}
+
+// ── Render result ─────────────────────────────────────────────────────────────
+function showResult(data, query){
+  const area=document.getElementById('resultArea');
+  if(!data.ok){
+    area.innerHTML=`<div class="error-card">⚠️ ${data.steps}</div>`;
+    return;
+  }
+  const rd=typeof data.result==='number'&&Number.isInteger(data.result)
+    ?data.result.toLocaleString()
+    :fmt(data.result);
+  area.innerHTML=`<div class="result-card">
+    <div class="result-label">Result</div>
+    <div class="result-value">${rd}</div>
+    <div class="result-expr">${data.expression} &nbsp;·&nbsp; ${data.steps}</div>
+  </div>`;
+  if(query&&(!history.length||history[0].q!==query)){
+    history.unshift({q:query,r:rd});
+    if(history.length>10) history.pop();
+    saveHistory();
+  }
+}
+
+// ── Calculate ─────────────────────────────────────────────────────────────────
+function runCalc(){
+  const q=document.getElementById('mainInput').value.trim();
+  if(!q) return;
+  const data=smartCalc(q);
+  showResult(data,q);
+  // Scroll result into view smoothly
+  document.getElementById('resultArea').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+// ── Pills ────────────────────────────────────────────────────────────────────
+const EXAMPLES=["Add 25 and 30","15% of 200","sqrt of 144","2 to the power 10",
+  "factorial of 7","sin 30","GCD 12 and 18","average of 10 20 30"];
+document.getElementById('pillsRow').innerHTML=
+  EXAMPLES.map(e=>`<span class="pill" onclick="usePill('${e}')">${e}</span>`).join('');
+
+function usePill(text){
+  document.getElementById('mainInput').value=text;
+  runCalc();
+}
+
+// ── Voice ────────────────────────────────────────────────────────────────────
+let rec=null,listening=false,lastT='';
+
+function toggleMic(){
+  if(!('webkitSpeechRecognition' in window||'SpeechRecognition' in window)){
+    document.getElementById('statusMsg').textContent='⚠️ Use Chrome/Edge';return;
+  }
+  if(listening){rec.stop();return;}
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.maxAlternatives=1;
+  rec.onstart=()=>{
+    listening=true;
+    const mb=document.getElementById('micBtn');
+    mb.textContent='⏹ Stop';mb.classList.add('listening');
+    document.getElementById('statusMsg').textContent='🔴 Listening…';
+    document.getElementById('transcript').style.display='none';
+    document.getElementById('transcript').textContent='';
+    document.getElementById('useBtn').style.display='none';
+    lastT='';
+  };
+  rec.onresult=(e)=>{
+    let fin='',interim='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const tx=e.results[i][0].transcript;
+      e.results[i].isFinal?fin+=tx:interim+=tx;
     }
+    lastT=fin||interim;
+    const tr=document.getElementById('transcript');
+    tr.style.display='block';tr.textContent=lastT;
+    if(fin) document.getElementById('useBtn').style.display='inline-block';
+  };
+  rec.onerror=(e)=>{
+    document.getElementById('statusMsg').textContent='❌ '+e.error;
+    resetMic();
+  };
+  rec.onend=()=>{
+    if(lastT) document.getElementById('useBtn').style.display='inline-block';
+    document.getElementById('statusMsg').textContent=lastT?'✅ Click "Use this"':'No speech detected.';
+    resetMic();
+  };
+  rec.start();
+}
 
-    function useTranscript() {
-        if (lastTranscript) {
-            window.parent.postMessage({type: 'streamlit:setComponentValue', value: lastTranscript}, '*');
-        }
-    }
-    </script>
-    """
-    return components.html(voice_html, height=160)
+function resetMic(){
+  listening=false;
+  const mb=document.getElementById('micBtn');
+  mb.textContent='🎤 Speak';mb.classList.remove('listening');
+}
 
-# ── UI ────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="hero-title">AI Smart Calculator</div>', unsafe_allow_html=True)
-st.markdown('<div class="hero-sub">Type or speak your math query — no API, works offline.</div>', unsafe_allow_html=True)
+function useTranscript(){
+  if(!lastT) return;
+  document.getElementById('mainInput').value=lastT;
+  document.getElementById('useBtn').style.display='none';
+  document.getElementById('statusMsg').textContent='';
+  document.getElementById('transcript').style.display='none';
+  runCalc();
+}
 
-# Voice component
-st.markdown("**🎤 Voice Input** *(Chrome/Edge only)*")
-voice_result = voice_input_component()
+// ── Init ─────────────────────────────────────────────────────────────────────
+renderHistory();
+</script>
+</body></html>
+"""
 
-# Check if voice sent a value
-if voice_result and isinstance(voice_result, str) and voice_result.strip():
-    st.session_state.voice_text = voice_result.strip()
-
-# Example pills
-examples = ["Add 25 and 30", "15% of 200", "sqrt of 144", "2 to the power 10",
-            "factorial of 7", "sin 30", "GCD of 12 and 18", "average of 10 20 30"]
-cols = st.columns(4)
-for i, ex in enumerate(examples):
-    if cols[i % 4].button(ex, key=f"pill_{i}"):
-        st.session_state.voice_text = ex
-
-# Main input
-user_input = st.text_input("", placeholder="e.g. What is 12% of 850?",
-    value=st.session_state.voice_text, key="main_input", label_visibility="collapsed")
-calculate = st.button("Calculate →")
-
-if calculate and user_input.strip():
-    data = smart_calculate(user_input.strip())
-    if data["result"] is None:
-        st.markdown(f'<div class="error-card">⚠️ {data["steps"]}</div>', unsafe_allow_html=True)
-    else:
-        r = data["result"]
-        result_display = f"{r:,}" if isinstance(r, int) else f"{r:,.10g}"
-        st.markdown(f"""
-        <div class="result-card">
-            <div class="result-label">Result</div>
-            <div class="result-value">{result_display}</div>
-            <div class="result-expr">{data['expression']} &nbsp;·&nbsp; {data['steps']}</div>
-        </div>""", unsafe_allow_html=True)
-        st.session_state.history.insert(0, {"q": user_input.strip(), "result": result_display})
-        st.session_state.history = st.session_state.history[:10]
-        st.session_state.voice_text = ""
-
-# History
-if st.session_state.history:
-    st.markdown('<div class="history-title">History</div>', unsafe_allow_html=True)
-    for item in st.session_state.history:
-        st.markdown(f"""<div class="history-item">
-            <span class="history-q">{item['q']}</span>
-            <span class="history-a">{item['result']}</span>
-        </div>""", unsafe_allow_html=True)
-    if st.button("Clear history"):
-        st.session_state.history = []
-        st.rerun()
+components.html(CALCULATOR_HTML, height=620, scrolling=True)
