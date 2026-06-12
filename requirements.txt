@@ -1,2 +1,4 @@
 streamlit
 google-generativeai
+streamlit
+word2number==1.1
