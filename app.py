@@ -2,10 +2,10 @@ import streamlit as st
 import google.generativeai as genai
 import json, re, os
 
-# ── Page config ───────────────────────────────────────────────────────────────
+
 st.set_page_config(page_title="AI Smart Calculator", page_icon="🧮", layout="centered")
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
